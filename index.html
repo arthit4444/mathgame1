@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คณิตศาสตร์อวกาศ AR - เกมฝึกสมองตรวจจับมือ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Prompt & Itim (เหมาะสำหรับเด็ก) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Itim&family=Prompt:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- MediaPipe สำหรับตรวจจับมือ -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Itim', 'Prompt', sans-serif;
+            background: linear-gradient(135deg, #FFDEE9 0%, #B5FFFC 100%);
+            overflow: hidden;
+            user-select: none;
+        }
+        /* กระจกเงาสำหรับกล้องเพื่อการควบคุมที่สอดคล้องกัน */
+        #webcam {
+            transform: scaleX(-1);
+        }
+        /* เอฟเฟกต์ฟองลอยตัว */
+        .bubble {
+            transition: transform 0.1s ease-out;
+        }
+        /* ปุ่มเลือกโหมดที่ถูกเลือก */
+        .mode-btn-active {
+            border-color: #ec4899 !important;
+            background-color: #fbcfe8 !important;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
+
+    <!-- ม่านพื้นหลังดาววิบวับ -->
+    <div class="absolute inset-0 pointer-events-none opacity-40">
+        <div class="absolute w-4 h-4 bg-yellow-300 rounded-full top-10 left-10 animate-ping"></div>
+        <div class="absolute w-6 h-6 bg-pink-300 rounded-full top-1/4 right-20 animate-bounce"></div>
+        <div class="absolute w-5 h-5 bg-purple-300 rounded-full bottom-20 left-1/3 animate-pulse"></div>
+        <div class="absolute w-8 h-8 bg-blue-300 rounded-full bottom-1/4 right-1/4 animate-bounce"></div>
+    </div>
+
+    <!-- หน้าต่างเริ่มต้น (Start Screen) -->
+    <div id="start-screen" class="z-50 bg-white/95 backdrop-blur-md p-6 md:p-10 rounded-3xl shadow-2xl text-center max-w-xl w-11/12 border-4 border-yellow-400 relative max-h-[90vh] overflow-y-auto">
+        <div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-400 text-white px-6 py-1.5 rounded-full text-xl md:text-2xl font-bold shadow-md whitespace-nowrap">
+            🚀 ป.3 ตะลุยเลข AR!
+        </div>
+        <h1 class="text-3xl md:text-5xl font-black text-pink-500 mb-2 mt-4 drop-shadow-sm tracking-wide">
+            ฟองสบู่คณิตศาสตร์ AR
+        </h1>
+        <p class="text-gray-700 text-base md:text-lg mb-4 font-semibold">
+            ใช้ <span class="text-blue-500">"นิ้วชี้"</span> จิ้มฟองสบู่ที่มีคำตอบที่ถูกต้องเพื่อเก็บคะแนน!
+        </p>
+
+        <!-- ส่วนเลือกกล้อง/เมาส์ -->
+        <div class="bg-blue-50 p-3 rounded-2xl mb-4 border border-blue-200">
+            <h3 class="font-bold text-blue-700 text-sm md:text-base mb-2 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-camera"></i> ขั้นตอนที่ 1: เลือกโหมดการควบคุม
+            </h3>
+            <div class="flex flex-col sm:flex-row gap-2 justify-center">
+                <button id="btn-enable-camera" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-full transition-all transform hover:scale-105 shadow flex items-center justify-center gap-2 text-sm">
+                    <i class="fa-solid fa-video"></i> ใช้กล้องเว็บแคม (AR)
+                </button>
+                <button id="btn-use-mouse" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-full transition-all transform hover:scale-105 shadow flex items-center justify-center gap-2 text-sm">
+                    <i class="fa-solid fa-mouse-pointer"></i> ใช้เมาส์/สัมผัสแทน
+                </button>
+            </div>
+            <!-- สถานะกล้อง -->
+            <div id="camera-status" class="text-xs mt-1.5 text-gray-500 italic">
+                ยังไม่ได้เชื่อมต่อโหมดควบคุม
+            </div>
+        </div>
+
+        <!-- ส่วนเลือกโหมดคณิตศาสตร์ -->
+        <div class="bg-purple-50 p-4 rounded-2xl mb-4 border border-purple-200">
+            <h3 class="font-bold text-purple-700 text-sm md:text-base mb-2.5 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-calculator"></i> ขั้นตอนที่ 2: เลือกโหมดคณิตศาสตร์ ป.3
+            </h3>
+            <div class="grid grid-cols-2 gap-2 max-w-md mx-auto">
+                <!-- โหมดบวก -->
+                <button onclick="selectGameMode('add')" id="mode-add" class="mode-option bg-white hover:bg-pink-100 text-pink-600 border-2 border-pink-200 p-2.5 rounded-xl flex flex-col items-center justify-center transition-all shadow-sm">
+                    <span class="text-2xl">➕</span>
+                    <span class="font-black text-sm">โหมดบวก</span>
+                    <span class="text-[10px] text-gray-500">เลข 1 และ 2 หลัก</span>
+                </button>
+                <!-- โหมดลบ -->
+                <button onclick="selectGameMode('sub')" id="mode-sub" class="mode-option bg-white hover:bg-blue-100 text-blue-600 border-2 border-blue-200 p-2.5 rounded-xl flex flex-col items-center justify-center transition-all shadow-sm">
+                    <span class="text-2xl">➖</span>
+                    <span class="font-black text-sm">โหมดลบ</span>
+                    <span class="text-[10px] text-gray-500">เลข 1 และ 2 หลัก</span>
+                </button>
+                <!-- โหมดคูณ -->
+                <button onclick="selectGameMode('mul')" id="mode-mul" class="mode-option bg-white hover:bg-amber-100 text-amber-600 border-2 border-amber-200 p-2.5 rounded-xl flex flex-col items-center justify-center transition-all shadow-sm">
+                    <span class="text-2xl">✖️</span>
+                    <span class="font-black text-sm">โหมดคูณ</span>
+                    <span class="text-[10px] text-gray-500">สูตรคูณไม่เกินแม่ 12</span>
+                </button>
+                <!-- โหมดผสม -->
+                <button onclick="selectGameMode('mix')" id="mode-mix" class="mode-option bg-white hover:bg-emerald-100 text-emerald-600 border-2 border-emerald-200 p-2.5 rounded-xl flex flex-col items-center justify-center transition-all shadow-sm">
+                    <span class="text-2xl">🌀</span>
+                    <span class="font-black text-sm">โหมดผสม</span>
+                    <span class="text-[10px] text-gray-500">บวก ลบ คูณ รวมกัน</span>
+                </button>
+            </div>
+        </div>
+
+        <button id="btn-start" disabled class="w-full bg-pink-500 hover:bg-pink-600 text-white text-xl md:text-2xl font-extrabold py-3 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            กรุณาเลือกโหมดควบคุมก่อนเล่นนะจ๊ะ!
+        </button>
+    </div>
+
+    <!-- พื้นที่เล่นเกมหลัก -->
+    <div id="game-container" class="hidden w-full h-full relative">
+        
+        <!-- ส่วนหัวแสดงสถานะและคะแนน -->
+        <div class="absolute top-4 left-4 right-4 z-40 flex justify-between items-center pointer-events-none">
+            <!-- คะแนน -->
+            <div class="bg-white/90 backdrop-blur-sm px-4 py-2 md:px-5 md:py-3 rounded-2xl shadow-lg border-2 border-pink-400 flex items-center gap-2 md:gap-3">
+                <div class="bg-pink-500 text-white w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-lg md:text-xl font-black">
+                    ⭐
+                </div>
+                <div>
+                    <div class="text-[10px] md:text-xs text-gray-500 font-bold">คะแนนรวม</div>
+                    <div id="score-display" class="text-xl md:text-2xl font-black text-pink-600">0</div>
+                </div>
+            </div>
+
+            <!-- แสดงโหมดปัจจุบันที่เล่น -->
+            <div id="game-badge" class="hidden md:flex bg-purple-500 text-white font-black px-4 py-2 rounded-full shadow-md text-sm border-2 border-white items-center gap-1.5">
+                <span>โหมด:</span> <span id="current-badge-text">กำลังโหลด</span>
+            </div>
+
+            <!-- เวลาที่เหลือ -->
+            <div class="bg-white/90 backdrop-blur-sm px-4 py-2 md:px-6 md:py-3 rounded-2xl shadow-lg border-2 border-amber-400 flex items-center gap-2 md:gap-3">
+                <div class="bg-amber-500 text-white w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-lg md:text-xl font-black">
+                    ⏱️
+                </div>
+                <div>
+                    <div class="text-[10px] md:text-xs text-gray-500 font-bold">เวลาที่เหลือ</div>
+                    <div id="timer-display" class="text-xl md:text-2xl font-black text-amber-600">60</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- หน้าจอแสดงโจทย์คณิตศาสตร์ (ตรงกลางบนสุด) -->
+        <div class="absolute top-20 md:top-24 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-sm pointer-events-none">
+            <div class="bg-yellow-300 text-yellow-900 px-5 py-3 md:px-6 md:py-4 rounded-3xl shadow-xl border-4 border-white text-center">
+                <div id="mode-helper-title" class="text-[10px] md:text-xs font-extrabold uppercase tracking-widest text-yellow-700">หาคำตอบที่ถูกต้องกันเถอะ!</div>
+                <div id="question-display" class="text-3xl md:text-5xl font-black my-1 drop-shadow-sm">5 + 4 = ?</div>
+                <div class="text-[10px] md:text-xs text-yellow-800 font-bold">สะกิดฟองสบู่ให้แตกเพื่อตอบข้อที่ถูก!</div>
+            </div>
+        </div>
+
+        <!-- จอแสดงผลเว็บแคม (สไตล์ AR แบบเต็มหน้าจอซ้อนด้านหลัง) -->
+        <div class="absolute inset-0 z-10 bg-slate-900 flex items-center justify-center overflow-hidden">
+            <!-- วิดีโอเว็บแคม -->
+            <video id="webcam" class="absolute w-full h-full object-cover opacity-60" autoplay playsinline></video>
+            <!-- Canvas สำหรับวาดเส้นกระดูกมือ / เอฟเฟกต์ AR -->
+            <canvas id="ar-canvas" class="absolute inset-0 w-full h-full object-cover z-20 pointer-events-none"></canvas>
+            
+            <!-- เอฟเฟกต์หน้ากากตอนตอบถูก / ผิด -->
+            <div id="flash-effect" class="absolute inset-0 z-30 opacity-0 pointer-events-none transition-all duration-150"></div>
+        </div>
+
+        <!-- พื้นที่ลอยของฟองสบู่เกม (ลอยทับหน้าจอเว็บแคม) -->
+        <div id="bubble-layer" class="absolute inset-0 z-30 overflow-hidden">
+            <!-- ฟองสบู่จะถูกสุ่มสร้างที่นี่ด้วย JS -->
+        </div>
+
+        <!-- ไอคอนแจ้งเตือนตรวจจับมือ -->
+        <div id="hand-lost-warning" class="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 bg-red-500 text-white py-2 px-6 rounded-full font-bold shadow-lg text-sm flex items-center gap-2 animate-bounce">
+            <i class="fa-solid fa-hand"></i> ไม่พบมือของคุณในกล้อง กรุณาชูมือขึ้นมาหน้ากล้องครับ!
+        </div>
+
+        <!-- ปุ่มควบคุมยามฉุกเฉิน / ออก -->
+        <button id="btn-quit" class="absolute bottom-4 right-4 z-40 bg-white/80 hover:bg-white text-red-500 font-bold p-3 rounded-full shadow-lg border border-red-200 transition-all text-sm">
+            <i class="fa-solid fa-right-from-bracket"></i> ออกจากเกม
+        </button>
+    </div>
+
+    <!-- หน้าต่างสรุปคะแนนหลังจบเกม (Game Over Screen) -->
+    <div id="game-over-screen" class="hidden z-50 bg-white/95 backdrop-blur-md p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-11/12 border-4 border-pink-400 relative">
+        <div class="text-6xl mb-4">🏆</div>
+        <h2 class="text-3xl md:text-4xl font-black text-pink-500 mb-2">จบเกมแล้วจ้า!</h2>
+        <p class="text-gray-600 mb-6 font-semibold">เก่งมากเลยตัวเลขปังมากปังมาย!</p>
+        
+        <div class="bg-pink-50 p-6 rounded-2xl mb-6 border-2 border-pink-100">
+            <div class="text-sm text-gray-500 font-bold mb-1">โหมดที่เล่น: <span id="summary-mode-name" class="font-black text-pink-600">โหมดบวก</span></div>
+            <div class="text-sm text-gray-500 font-bold mb-1">คะแนนที่คุณทำได้</div>
+            <div id="final-score" class="text-5xl font-black text-pink-600 animate-pulse">0</div>
+            <div class="text-xs text-emerald-600 font-bold mt-2" id="score-comment">สุดยอดอัจฉริยะตัวน้อย! 🌟</div>
+        </div>
+
+        <button id="btn-restart" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-xl font-extrabold py-3.5 rounded-2xl shadow-lg transition-all transform hover:scale-105 active:scale-95">
+            เล่นอีกครั้ง 🔄
+        </button>
+    </div>
+
+    <!-- ส่วนควบคุมเสียงสังเคราะห์ (Web Audio API) -->
+    <script>
+        // สร้างระบบเสียงสังเคราะห์โดยไม่ต้องดาวน์โหลดไฟล์เสียงภายนอก
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'pop') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'correct') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.setValueAtTime(659.25, now + 0.1);
+                osc.frequency.setValueAtTime(783.99, now + 0.2);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.35);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.exponentialRampToValueAtTime(110, now + 0.3);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'gameover') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(554, now + 0.15);
+                osc.frequency.setValueAtTime(659, now + 0.3);
+                osc.frequency.setValueAtTime(880, now + 0.45);
+                gain.gain.setValueAtTime(0.25, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.6);
+                osc.start(now);
+                osc.stop(now + 0.6);
+            }
+        }
+    </script>
+
+    <!-- ส่วนควบคุมตรรกะเกมและการตรวจจับมือ (AR Engine) -->
+    <script>
+        // กำหนดองค์ประกอบต่างๆ ของ DOM
+        const startScreen = document.getElementById('start-screen');
+        const gameContainer = document.getElementById('game-container');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        
+        const btnEnableCamera = document.getElementById('btn-enable-camera');
+        const btnUseMouse = document.getElementById('btn-use-mouse');
+        const btnStart = document.getElementById('btn-start');
+        const btnRestart = document.getElementById('btn-restart');
+        const btnQuit = document.getElementById('btn-quit');
+
+        const cameraStatus = document.getElementById('camera-status');
+        const webcamElement = document.getElementById('webcam');
+        const arCanvas = document.getElementById('ar-canvas');
+        const canvasCtx = arCanvas.getContext('2d');
+        const bubbleLayer = document.getElementById('bubble-layer');
+
+        const scoreDisplay = document.getElementById('score-display');
+        const timerDisplay = document.getElementById('timer-display');
+        const questionDisplay = document.getElementById('question-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const scoreComment = document.getElementById('score-comment');
+        const handLostWarning = document.getElementById('hand-lost-warning');
+        const flashEffect = document.getElementById('flash-effect');
+
+        const gameBadge = document.getElementById('game-badge');
+        const currentBadgeText = document.getElementById('current-badge-text');
+        const summaryModeName = document.getElementById('summary-mode-name');
+        const modeHelperTitle = document.getElementById('mode-helper-title');
+
+        // ตัวแปรควบคุมระบบกล้องและโหมดการเล่น
+        let useCamera = false;
+        let isCameraActive = false;
+        let cameraObj = null;
+        let lastVideoTime = -1;
+        let handDetector = null;
+        let isHandDetected = false;
+
+        // ตัวแปรควบคุมพิกัดของตัวชี้ (Cursor)
+        let cursorX = -100;
+        let cursorY = -100;
+
+        // ตัวแปรสถานะของเกม
+        let score = 0;
+        let timeLeft = 60;
+        let gameInterval = null;
+        let currentQuestion = { q: '', a: 0 };
+        let activeBubbles = [];
+        let bubbleIdCounter = 0;
+        
+        // โหมดคณิตศาสตร์ที่เลือก (ค่าเริ่มต้นคือ โหมดบวก)
+        let selectedMathMode = 'add'; 
+
+        const bubbleColors = [
+            'from-pink-400/90 to-red-400/90 border-pink-300',
+            'from-blue-400/90 to-indigo-400/90 border-blue-300',
+            'from-emerald-400/90 to-teal-400/90 border-emerald-300',
+            'from-amber-400/90 to-orange-400/90 border-amber-300',
+            'from-purple-400/90 to-pink-400/90 border-purple-300'
+        ];
+
+        // กำหนดขนาดแคนวาสให้พอดีกับจอภาพ
+        function resizeCanvas() {
+            arCanvas.width = window.innerWidth;
+            arCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // ฟังก์ชันเลือกโหมดเกมพร้อมไฮไลต์ปุ่มที่เลือก
+        function selectGameMode(mode) {
+            selectedMathMode = mode;
+            
+            // ลบคลาสแอคทีฟจากทุกปุ่ม
+            document.querySelectorAll('.mode-option').forEach(btn => {
+                btn.classList.remove('mode-btn-active');
+            });
+            
+            // เพิ่มคลาสแอคทีฟให้กับปุ่มที่กดเลือก
+            const targetBtn = document.getElementById(`mode-${mode}`);
+            if (targetBtn) {
+                targetBtn.classList.add('mode-btn-active');
+            }
+            
+            // เล่นเสียงประกอบการเลือกโหมด
+            playSound('pop');
+        }
+
+        // ตั้งค่าตัวเลือกโหมดบวกเป็นดีฟอลต์ตั้งแต่โหลดหน้าเว็บ
+        selectGameMode('add');
+
+        // 1. จัดการเริ่มใช้งานเว็บแคมและการเชื่อมต่อกับ MediaPipe
+        async function setupWebcam() {
+            cameraStatus.textContent = '🔄 กำลังขอสิทธิ์ใช้งานกล้อง...';
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480, facingMode: 'user' },
+                    audio: false
+                });
+                webcamElement.srcObject = stream;
+                isCameraActive = true;
+                
+                setupMediaPipe();
+            } catch (err) {
+                console.error(err);
+                cameraStatus.innerHTML = '<span class="text-red-500">❌ เข้าถึงกล้องไม่ได้ ขอเปลี่ยนมาใช้เมาส์แทนนะจ๊ะ</span>';
+                enableMouseFallback();
+            }
+        }
+
+        function setupMediaPipe() {
+            cameraStatus.textContent = '🔄 กำลังโหลดระบบตรวจจับมือ (AI)...';
+            
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onHandResults);
+
+            cameraObj = new Camera(webcamElement, {
+                onFrame: async () => {
+                    if (useCamera && isCameraActive) {
+                        await hands.send({ image: webcamElement });
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+
+            cameraObj.start()
+                .then(() => {
+                    cameraStatus.innerHTML = '<span class="text-emerald-600 font-bold">✔️ กล้อง & AI พร้อมลุยแล้วจ้า! เลือกโหมดด้านล่างแล้วไปกันเลย!</span>';
+                    btnStart.disabled = false;
+                    btnStart.textContent = 'เข้าสู่เกมวิเศษคณิตศาสตร์! 🚀';
+                    btnStart.classList.remove('bg-pink-500');
+                    btnStart.classList.add('bg-emerald-500');
+                })
+                .catch(err => {
+                    console.error(err);
+                    cameraStatus.innerHTML = '<span class="text-red-500 font-bold">❌ ระบบกล้องขัดข้อง ขอเปลี่ยนใช้โหมดเมาส์สำรองแทน</span>';
+                    enableMouseFallback();
+                });
+        }
+
+        function enableMouseFallback() {
+            useCamera = false;
+            btnStart.disabled = false;
+            btnStart.textContent = 'เข้าสู่เกมวิเศษคณิตศาสตร์! 🚀';
+            btnStart.classList.remove('bg-pink-500');
+            btnStart.classList.add('bg-emerald-500');
+            cameraStatus.innerHTML = '<span class="text-blue-600 font-bold">🎯 ใช้เมาส์หรือสัมผัสหน้าจอเพื่อบังคับได้เต็มที่จ้า</span>';
+        }
+
+        function onHandResults(results) {
+            canvasCtx.clearRect(0, 0, arCanvas.width, arCanvas.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandDetected = true;
+                handLostWarning.classList.add('hidden');
+
+                const landmarks = results.multiHandLandmarks[0];
+                const indexFingerTip = landmarks[8]; // ปลายนิ้วชี้
+
+                // สเกลการคำนวณตำแหน่งกลับข้างเพื่อให้สอดคล้องกับกระจกเงา
+                cursorX = (1 - indexFingerTip.x) * arCanvas.width;
+                cursorY = indexFingerTip.y * arCanvas.height;
+
+                drawCursorOverlay(cursorX, cursorY);
+                drawHandSkeleton(landmarks);
+            } else {
+                isHandDetected = false;
+                if (useCamera) {
+                    handLostWarning.classList.remove('hidden');
+                }
+            }
+        }
+
+        function drawCursorOverlay(x, y) {
+            canvasCtx.save();
+            canvasCtx.shadowBlur = 20;
+            canvasCtx.shadowColor = '#FF007F';
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(x, y, 22, 0, 2 * Math.PI);
+            canvasCtx.strokeStyle = '#FFFFFF';
+            canvasCtx.lineWidth = 4;
+            canvasCtx.stroke();
+
+            canvasCtx.beginPath();
+            canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = '#FF007F';
+            canvasCtx.fill();
+            canvasCtx.strokeStyle = '#FFFFFF';
+            canvasCtx.lineWidth = 2;
+            canvasCtx.stroke();
+
+            canvasCtx.font = '24px sans-serif';
+            canvasCtx.fillText('⭐', x - 12, y - 28);
+            canvasCtx.restore();
+        }
+
+        function drawHandSkeleton(landmarks) {
+            canvasCtx.save();
+            canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            canvasCtx.lineWidth = 3;
+
+            const connections = [
+                [0, 1], [1, 2], [2, 3], [3, 4],
+                [0, 5], [5, 6], [6, 7], [7, 8],
+                [0, 9], [9, 10], [10, 11], [11, 12],
+                [0, 13], [13, 14], [14, 15], [15, 16],
+                [0, 17], [17, 18], [18, 19], [19, 20]
+            ];
+
+            for (const conn of connections) {
+                const pt1 = landmarks[conn[0]];
+                const pt2 = landmarks[conn[1]];
+                canvasCtx.beginPath();
+                canvasCtx.moveTo((1 - pt1.x) * arCanvas.width, pt1.y * arCanvas.height);
+                canvasCtx.lineTo((1 - pt2.x) * arCanvas.width, pt2.y * arCanvas.height);
+                canvasCtx.stroke();
+            }
+
+            for (const pt of landmarks) {
+                canvasCtx.beginPath();
+                canvasCtx.arc((1 - pt.x) * arCanvas.width, pt.y * arCanvas.height, 5, 0, 2 * Math.PI);
+                canvasCtx.fillStyle = '#5eead4';
+                canvasCtx.fill();
+            }
+            canvasCtx.restore();
+        }
+
+        // ตรวจสอบการเคลื่อนไหวผ่านเมาส์/สัมผัส
+        window.addEventListener('mousemove', (e) => {
+            if (!useCamera) {
+                cursorX = e.clientX;
+                cursorY = e.clientY;
+            }
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!useCamera && e.touches.length > 0) {
+                cursorX = e.touches[0].clientX;
+                cursorY = e.touches[0].clientY;
+            }
+        });
+
+        // 2. ปรับปรุงตรรกะการสร้างโจทย์คณิตศาสตร์ ป.3 ตามสเปกใหม่
+        function generateMathQuestion() {
+            let mode = selectedMathMode;
+            if (mode === 'mix') {
+                const modes = ['add', 'sub', 'mul'];
+                mode = modes[Math.floor(Math.random() * modes.length)];
+            }
+
+            let q = '';
+            let a = 0;
+
+            if (mode === 'add') {
+                // โหมดบวก: มีทั้งเลข 1 หลัก และ 2 หลัก
+                // สุ่มว่าจะได้ 1 หลัก + 1 หลัก, 1 หลัก + 2 หลัก หรือ 2 หลัก + 2 หลัก
+                const typeRand = Math.random();
+                let num1, num2;
+
+                if (typeRand < 0.33) {
+                    // เลข 1 หลัก + เลข 1 หลัก
+                    num1 = Math.floor(Math.random() * 9) + 1; // 1-9
+                    num2 = Math.floor(Math.random() * 9) + 1; // 1-9
+                } else if (typeRand < 0.66) {
+                    // เลข 1 หลัก + เลข 2 หลัก
+                    num1 = Math.floor(Math.random() * 9) + 1; // 1-9
+                    num2 = Math.floor(Math.random() * 90) + 10; // 10-99
+                    // สลับตัวตั้งให้ดูหลากหลาย
+                    if (Math.random() > 0.5) {
+                        const temp = num1; num1 = num2; num2 = temp;
+                    }
+                } else {
+                    // เลข 2 หลัก + เลข 2 หลัก
+                    num1 = Math.floor(Math.random() * 90) + 10; // 10-99
+                    num2 = Math.floor(Math.random() * 90) + 10; // 10-99
+                }
+
+                q = `${num1} + ${num2} = ?`;
+                a = num1 + num2;
+
+            } else if (mode === 'sub') {
+                // โหมดลบ: มีทั้งเลข 1 หลัก และ 2 หลัก (ไม่ติดลบ)
+                const typeRand = Math.random();
+                let num1, num2;
+
+                if (typeRand < 0.33) {
+                    // 1 หลัก - 1 หลัก
+                    num1 = Math.floor(Math.random() * 9) + 1; // 1-9
+                    num2 = Math.floor(Math.random() * num1) + 1; // ลบแล้วไม่ติดลบ
+                } else if (typeRand < 0.66) {
+                    // 2 หลัก - 1 หลัก
+                    num1 = Math.floor(Math.random() * 90) + 10; // 10-99
+                    num2 = Math.floor(Math.random() * 9) + 1; // 1-9
+                } else {
+                    // 2 หลัก - 2 หลัก
+                    num1 = Math.floor(Math.random() * 90) + 10; // 10-99
+                    num2 = Math.floor(Math.random() * (num1 - 10)) + 10; // ลบแล้วไม่ติดลบ
+                }
+
+                q = `${num1} - ${num2} = ?`;
+                a = num1 - num2;
+
+            } else if (mode === 'mul') {
+                // โหมดคูณ: ไม่เกินแม่ 12
+                const num1 = Math.floor(Math.random() * 11) + 2; // สุ่มแม่ 2 ถึง 12
+                const num2 = Math.floor(Math.random() * 12) + 1; // คูณด้วย 1 ถึง 12
+                
+                q = `${num1} × ${num2} = ?`;
+                a = num1 * num2;
+            }
+
+            return { q, a };
+        }
+
+        // 3. ระบบจัดการฟองสบู่
+        function spawnBubbles(correctAnswer) {
+            bubbleLayer.innerHTML = '';
+            activeBubbles = [];
+
+            const bubbleCount = 3;
+            const answers = [correctAnswer];
+            
+            // สร้างตัวเลือกลวงที่ใกล้เคียงคำตอบจริงเพื่อให้เด็กฝึกการสังเกต
+            while (answers.length < bubbleCount) {
+                // สุ่มเพิ่มลบเล็กน้อยสร้างตัวเลือกผิด
+                let offset = Math.floor(Math.random() * 10) - 5;
+                if (offset === 0) offset = Math.random() > 0.5 ? 2 : -2;
+                let wrongVal = correctAnswer + offset;
+                
+                if (wrongVal < 0) wrongVal = Math.floor(Math.random() * 15) + 1;
+                if (!answers.includes(wrongVal)) {
+                    answers.push(wrongVal);
+                }
+            }
+
+            // สลับที่ทางเลือกตอบ
+            answers.sort(() => Math.random() - 0.5);
+
+            // ข้อมูลตำแหน่งเพื่อแบ่งแนวไม่ให้ลอยมาทับซ้อนกันตั้งแต่แรกเริ่ม
+            const screenSections = [0.2, 0.5, 0.8];
+
+            answers.forEach((val, index) => {
+                const bubbleEl = document.createElement('div');
+                const id = bubbleIdCounter++;
+                const colorClass = bubbleColors[Math.floor(Math.random() * bubbleColors.length)];
+
+                // จัดสเกลความกว้างขนาดตามจอภาพให้เหมาะกับมือถือและเดสก์ท็อป
+                const size = Math.min(130, Math.max(100, window.innerWidth * 0.15));
+                const xPos = screenSections[index] * window.innerWidth + (Math.random() * 40 - 20);
+                const yPos = window.innerHeight + Math.random() * 60;
+                
+                bubbleEl.id = `bubble-${id}`;
+                bubbleEl.className = `bubble absolute rounded-full bg-gradient-to-tr ${colorClass} border-4 text-white font-extrabold flex items-center justify-center cursor-pointer shadow-lg active:scale-95 select-none`;
+                bubbleEl.style.width = `${size}px`;
+                bubbleEl.style.height = `${size}px`;
+                bubbleEl.style.left = `${xPos - size/2}px`;
+                bubbleEl.style.top = `${yPos}px`;
+                
+                bubbleEl.innerHTML = `
+                    <div class="absolute top-2 left-4 w-4 h-2 bg-white/60 rounded-full rotate-[-30deg]"></div>
+                    <div class="text-3xl md:text-4xl drop-shadow-md font-black pointer-events-none">${val}</div>
+                `;
+
+                bubbleLayer.appendChild(bubbleEl);
+
+                activeBubbles.push({
+                    id: id,
+                    el: bubbleEl,
+                    value: val,
+                    isCorrect: (val === correctAnswer),
+                    x: xPos,
+                    y: yPos,
+                    size: size,
+                    speed: Math.random() * 1.6 + 1.4, // สุ่มความเร็วลอยตัวขึ้นไป
+                    angle: Math.random() * Math.PI,
+                    popped: false
+                });
+
+                // ตรวจรับการสัมผัสผ่านเมาส์/ทัชสกรีนในตัว
+                bubbleEl.addEventListener('mousedown', () => {
+                    handleBubblePop(activeBubbles.find(b => b.id === id));
+                });
+                bubbleEl.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    handleBubblePop(activeBubbles.find(b => b.id === id));
+                });
+            });
+        }
+
+        function triggerFlashEffect(isCorrect) {
+            if (isCorrect) {
+                flashEffect.className = "absolute inset-0 z-30 bg-emerald-500/30 opacity-100 pointer-events-none transition-all duration-150";
+            } else {
+                flashEffect.className = "absolute inset-0 z-30 bg-red-500/30 opacity-100 pointer-events-none transition-all duration-150";
+            }
+            setTimeout(() => {
+                flashEffect.className = "absolute inset-0 z-30 opacity-0 pointer-events-none";
+            }, 150);
+        }
+
+        function createPoppingParticles(x, y) {
+            const particleCount = 12;
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                const angle = (i / particleCount) * Math.PI * 2;
+                const distance = Math.random() * 35 + 15;
+                
+                particle.className = `absolute rounded-full pointer-events-none z-50 bg-white`;
+                const size = Math.random() * 8 + 4;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${x}px`;
+                particle.style.top = `${y}px`;
+                particle.style.transition = 'all 0.5s ease-out';
+                
+                bubbleLayer.appendChild(particle);
+
+                setTimeout(() => {
+                    const destX = x + Math.cos(angle) * (distance + 60);
+                    const destY = y + Math.sin(angle) * (distance + 60);
+                    particle.style.transform = `translate(${destX - x}px, ${destY - y}px) scale(0)`;
+                    particle.style.opacity = '0';
+                }, 10);
+
+                setTimeout(() => particle.remove(), 500);
+            }
+        }
+
+        function handleBubblePop(bubble) {
+            if (!bubble || bubble.popped) return;
+            bubble.popped = true;
+            
+            playSound('pop');
+            createPoppingParticles(bubble.x, bubble.y);
+            bubble.el.remove();
+
+            if (bubble.isCorrect) {
+                playSound('correct');
+                score += 10;
+                scoreDisplay.textContent = score;
+                triggerFlashEffect(true);
+                nextRound();
+            } else {
+                playSound('wrong');
+                score = Math.max(0, score - 5);
+                scoreDisplay.textContent = score;
+                triggerFlashEffect(false);
+            }
+        }
+
+        function nextRound() {
+            currentQuestion = generateMathQuestion();
+            questionDisplay.textContent = currentQuestion.q;
+            spawnBubbles(currentQuestion.a);
+        }
+
+        function gameLoop() {
+            if (timeLeft <= 0) return;
+
+            activeBubbles.forEach((bubble) => {
+                if (bubble.popped) return;
+
+                bubble.y -= bubble.speed;
+                const waveX = bubble.x + Math.sin(bubble.y * 0.015 + bubble.angle) * 1.5;
+                
+                bubble.el.style.top = `${bubble.y}px`;
+                bubble.el.style.left = `${waveX - bubble.size/2}px`;
+
+                // การตรวจจับการชนของเป้าชี้กับฟองสบู่
+                const centerX = waveX;
+                const centerY = bubble.y + bubble.size / 2;
+                const distance = Math.hypot(cursorX - centerX, cursorY - centerY);
+
+                if (distance < (bubble.size / 2 + 10)) {
+                    handleBubblePop(bubble);
+                }
+
+                // ฟองสบู่ลอยผ่านพ้นขอบบน
+                if (bubble.y < -bubble.size) {
+                    bubble.el.remove();
+                    bubble.popped = true;
+                    
+                    if (bubble.isCorrect) {
+                        nextRound();
+                    }
+                }
+            });
+
+            activeBubbles = activeBubbles.filter(b => !b.popped);
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startTimer() {
+            timeLeft = 60;
+            timerDisplay.textContent = timeLeft;
+
+            gameInterval = setInterval(() => {
+                timeLeft--;
+                timerDisplay.textContent = timeLeft;
+
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function resetGame() {
+            score = 0;
+            scoreDisplay.textContent = score;
+            bubbleLayer.innerHTML = '';
+            activeBubbles = [];
+            clearInterval(gameInterval);
+            if (!useCamera) {
+                handLostWarning.classList.add('hidden');
+            }
+        }
+
+        // เริ่มสตาร์ทโหมดและแบนเนอร์แสดงชื่อโหมดในเกม
+        function updateGameBadges() {
+            let modeThaiName = "โหมดบวก";
+            let helperText = "หาคำตอบที่ถูกต้องกันเถอะ!";
+
+            if (selectedMathMode === 'add') {
+                modeThaiName = "โหมดบวก ➕";
+                helperText = "ฝึกบวกเลข 1 และ 2 หลักสุดหรรษา!";
+            } else if (selectedMathMode === 'sub') {
+                modeThaiName = "โหมดลบ ➖";
+                helperText = "ฝึกลบเลข 1 และ 2 หลักแสนสนุก!";
+            } else if (selectedMathMode === 'mul') {
+                modeThaiName = "โหมดคูณ ✖️";
+                helperText = "ฝึกคูณเลขท้าทายไม่เกินแม่ 12!";
+            } else if (selectedMathMode === 'mix') {
+                modeThaiName = "โหมดผสม 🌀";
+                helperText = "ฝึกทักษะคณิตศาสตร์ครบเครื่อง!";
+            }
+
+            currentBadgeText.textContent = modeThaiName;
+            summaryModeName.textContent = modeThaiName;
+            modeHelperTitle.textContent = helperText;
+            gameBadge.classList.remove('hidden');
+        }
+
+        function startGame() {
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            gameContainer.classList.remove('hidden');
+
+            updateGameBadges();
+            resetGame();
+            startTimer();
+            nextRound();
+            gameLoop();
+        }
+
+        function endGame() {
+            clearInterval(gameInterval);
+            playSound('gameover');
+
+            gameContainer.classList.add('hidden');
+            gameOverScreen.classList.remove('hidden');
+            finalScoreDisplay.textContent = score;
+
+            if (score >= 100) {
+                scoreComment.textContent = "สุดยอดอัจฉริยะนักคณิตศาสตร์ตัวน้อย! 🌟🧙‍♂️";
+                scoreComment.className = "text-sm text-yellow-600 font-black mt-2 animate-bounce";
+            } else if (score >= 60) {
+                scoreComment.textContent = "เก่งสุดยอดเลยจ้า ชั้น ป.3 ภูมิใจแน่นอน! 💖🐱";
+                scoreComment.className = "text-sm text-pink-600 font-bold mt-2";
+            } else if (score >= 30) {
+                scoreComment.textContent = "ยอดเยี่ยมมากเลยครับ ลองฝึกเพิ่มเรื่อยๆ นะ! 👍🦁";
+                scoreComment.className = "text-sm text-blue-600 font-bold mt-2";
+            } else {
+                scoreComment.textContent = "มาพยายามใหม่อีกที สนุกพร้อมพัฒนาเรื่อยๆ นะเด็กดี! 💪🥕";
+                scoreComment.className = "text-sm text-gray-500 font-semibold mt-2";
+            }
+        }
+
+        // ดักจับและตั้งค่าปุ่ม
+        btnEnableCamera.addEventListener('click', () => {
+            useCamera = true;
+            setupWebcam();
+        });
+
+        btnUseMouse.addEventListener('click', () => {
+            enableMouseFallback();
+        });
+
+        btnStart.addEventListener('click', () => {
+            startGame();
+        });
+
+        btnRestart.addEventListener('click', () => {
+            startGame();
+        });
+
+        btnQuit.addEventListener('click', () => {
+            resetGame();
+            gameOverScreen.classList.add('hidden');
+            gameContainer.classList.add('hidden');
+            startScreen.classList.remove('hidden');
+        });
+    </script>
+</body>
+</html>
